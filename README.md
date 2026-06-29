@@ -1,4 +1,4 @@
-# Simple Agent App
+# Simple Token Burner App
 
 A standalone Python application that repeatedly runs prompts against an LLM and logs comprehensive metrics including prompt hashing, response times, token usage, and more.
 
@@ -10,24 +10,23 @@ A standalone Python application that repeatedly runs prompts against an LLM and 
 - **Flexible Execution**: Multiple execution modes (sequential, random, categorical, custom)
 - **Detailed Metrics**: Tracks response times, token usage, finish reasons, and errors
 - **Structured Output**: Logs to both console and files (CSV for metrics, JSONL for detailed responses)
+- **Interactive Configuration**: Use `--configure` to set up provider information interactively
 
 ## Installation
 
+This project uses `uv` for dependency management.
+
 ```bash
 # Clone the repository
-git clone https://github.com/astevko/simple_agent_app.git
-cd simple_agent_app
+git clone https://github.com/astevko/simple_token_burner_app.git
+cd simple_token_burner_app
 
-# Create virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies using uv
+uv sync
 
 # For specific providers, install additional packages:
-pip install openai      # For OpenAI
-pip install anthropic   # For Anthropic
+uv add openai      # For OpenAI
+uv add anthropic   # For Anthropic
 ```
 
 ## Usage
@@ -39,10 +38,19 @@ pip install anthropic   # For Anthropic
 python main.py
 
 # Run with OpenAI
-python main.py --provider openai --api-key YOUR_API_KEY
+python main.py --provider openai
 
 # Run with Anthropic
-python main.py --provider anthropic --api-key YOUR_API_KEY
+python main.py --provider anthropic
+```
+
+### Interactive Configuration
+
+```bash
+# Set up provider information interactively
+python main.py --configure
+
+# This will create a .env file with your configuration
 ```
 
 ### Command Line Options
@@ -76,6 +84,16 @@ python main.py --no-console
 python main.py --log-dir my_logs
 ```
 
+### Using the run.sh script
+
+```bash
+# Make executable
+chmod +x run.sh
+
+# Run with gum for interactive prompts
+./run.sh
+```
+
 ### All Options
 
 ```
@@ -93,6 +111,7 @@ python main.py --log-dir my_logs
 --no-console              Disable console logging
 --no-file                 Disable file logging
 --custom-prompts PROMPTS  Custom prompts to execute
+--configure               Interactive configuration to set up provider information
 --list-prompts            List all available prompts and exit
 --list-categories         List prompt categories and exit
 ```
@@ -100,11 +119,15 @@ python main.py --log-dir my_logs
 ## Project Structure
 
 ```
-simple_agent_app/
+simple_token_burner_app/
 ├── main.py                      # Main entry point
-├── requirements.txt             # Dependencies
+├── run.sh                       # Interactive shell script
+├── requirements.txt             # Dependencies (for reference)
+├── pyproject.toml               # Project configuration for uv
 ├── README.md                    # This file
-└── simple_agent_app/
+├── .gitignore                   # Git ignore rules
+├── .env.example                 # Example environment file
+└── simple_token_burner_app/
     ├── __init__.py
     ├── prompts.py               # Prompt library
     ├── llm_client.py            # LLM client for various providers
@@ -144,7 +167,7 @@ python main.py
 
 ### Run 5 random medium prompts with OpenAI
 ```bash
-python main.py --provider openai --api-key YOUR_KEY --mode random --categories medium --max-prompts 5
+python main.py --provider openai --mode random --categories medium --max-prompts 5
 ```
 
 ### Run large prompts with 2-second delay between them
@@ -157,20 +180,28 @@ python main.py --categories large --delay 2.0
 python main.py --custom-prompts "Explain quantum computing" "What is the meaning of life?"
 ```
 
+### Configure provider interactively
+```bash
+python main.py --configure
+```
+
 ## Development
 
 ```bash
+# Install development dependencies
+uv sync --all-extras
+
 # Run tests
 pytest
 
 # Format code
-black .
+uv run black .
 
 # Lint code
-flake8 .
+uv run flake8 .
 
 # Type checking
-mypy .
+uv run mypy .
 ```
 
 ## License

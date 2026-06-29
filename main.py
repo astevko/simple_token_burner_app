@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple Agent App - Main entry point
+Simple Token Burner App - Main entry point
 
 This application repeatedly runs prompts against an LLM and logs comprehensive metrics
 including prompt hashing, response times, token usage, and more.
@@ -14,15 +14,15 @@ from typing import List
 # Add the current directory to Python path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from simple_agent_app.agent import SimpleAgent, AgentConfig, ExecutionMode
-from simple_agent_app.prompts import ALL_PROMPTS
-from simple_agent_app.llm_client import LLMProvider
+from simple_token_burner_app.agent import SimpleAgent, AgentConfig, ExecutionMode
+from simple_token_burner_app.prompts import ALL_PROMPTS
+from simple_token_burner_app.llm_client import LLMProvider
 
 
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Simple Agent App - Run LLM prompts with comprehensive logging"
+        description="Simple Token Burner App - Run LLM prompts with comprehensive logging"
     )
     
     # Provider arguments
@@ -131,6 +131,13 @@ def parse_arguments():
         help='Custom prompts to execute'
     )
     
+    # Configuration
+    parser.add_argument(
+        '--configure',
+        action='store_true',
+        help='Interactive configuration to set up provider information'
+    )
+    
     # Information
     parser.add_argument(
         '--list-prompts',
@@ -152,7 +159,7 @@ def list_prompts():
     print("Available Prompts:")
     print("=" * 50)
     
-    from simple_agent_app.prompts import PROMPT_CATEGORIES
+    from simple_token_burner_app.prompts import PROMPT_CATEGORIES
     
     for category, prompts in PROMPT_CATEGORIES.items():
         print(f"\n{category.upper()} PROMPTS ({len(prompts)}):")
@@ -170,7 +177,7 @@ def list_categories():
     print("Available Prompt Categories:")
     print("=" * 40)
     
-    from simple_agent_app.prompts import PROMPT_CATEGORIES
+    from simple_token_burner_app.prompts import PROMPT_CATEGORIES
     
     for category, prompts in PROMPT_CATEGORIES.items():
         print(f"  {category}: {len(prompts)} prompts")
@@ -178,9 +185,147 @@ def list_categories():
     print(f"\nTotal: {len(ALL_PROMPTS)} prompts across all categories")
 
 
+def configure_provider():
+    """Interactive configuration to set up provider information."""
+    print("Simple Token Burner App - Configuration")
+    print("=" * 40)
+    
+    # Get current configuration from .env if it exists
+    env_file = ".env"
+    current_config = {}
+    if os.path.exists(env_file):
+        with open(env_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    current_config[key.strip()] = value.strip()
+    
+    # Ask for provider
+    providers = [p.value for p in LLMProvider if p.value != 'mock']
+    print("Available LLM Providers:")
+    for i, provider in enumerate(providers, 1):
+        print(f"  {i}. {provider}")
+    
+    while True:
+        try:
+            choice = input(f"Select provider (1-{len(providers)}): ")
+            if choice.isdigit() and 1 <= int(choice) <= len(providers):
+                selected_provider = providers[int(choice) - 1]
+                break
+            else:
+                print(f"Please enter a number between 1 and {len(providers)}")
+        except (ValueError, IndexError):
+            print("Invalid input. Please try again.")
+    
+    # Ask for API key
+    api_key_var = f"{selected_provider.upper()}_API_KEY"
+    current_api_key = current_config.get(api_key_var, "")
+    
+    if current_api_key:
+        use_existing = input(f"Use existing API key for {selected_provider}? (y/n): ").lower()
+        if use_existing == 'y':
+            api_key = current_api_key
+        else:
+            api_key = input(f"Enter API key for {selected_provider}: ").strip()
+    else:
+        api_key = input(f"Enter API key for {selected_provider}: ").strip()
+    
+    # Ask for model (optional)
+    model_var = f"{selected_provider.upper()}_MODEL"
+    current_model = current_config.get(model_var, "")
+    
+    if current_model:
+        use_existing = input(f"Use existing model for {selected_provider}? (y/n): ").lower()
+        if use_existing == 'y':
+            model = current_model
+        else:
+            model = input(f"Enter model for {selected_provider} (leave empty for default): ").strip()
+    else:
+        model = input(f"Enter model for {selected_provider} (leave empty for default): ").strip()
+    
+    # Ask for base URL (for local providers)
+    base_url = ""
+    if selected_provider == 'local':
+        current_base_url = current_config.get("LOCAL_BASE_URL", "")
+        if current_base_url:
+            use_existing = input("Use existing base URL? (y/n): ").lower()
+            if use_existing == 'y':
+                base_url = current_base_url
+            else:
+                base_url = input("Enter base URL for local LLM: ").strip()
+        else:
+            base_url = input("Enter base URL for local LLM: ").strip()
+    
+    # Save configuration to .env file
+    with open(env_file, 'w') as f:
+        f.write("# Simple Token Burner App Configuration\n")
+        f.write(f"# Generated on: {__import__('datetime').datetime.now().isoformat()}\n")
+        f.write("\n")
+        f.write("# LLM Provider Configuration\n")
+        f.write(f"PROVIDER={selected_provider}\n")
+        
+        if api_key:
+            f.write(f"{api_key_var}={api_key}\n")
+        
+        if model:
+            f.write(f"{model_var}={model}\n")
+        
+        if base_url:
+            f.write(f"LOCAL_BASE_URL={base_url}\n")
+    
+    print(f"\nConfiguration saved to {env_file}")
+    print(f"Provider: {selected_provider}")
+    if model:
+        print(f"Model: {model}")
+    if base_url:
+        print(f"Base URL: {base_url}")
+
+
+def load_env_config():
+    """Load configuration from .env file."""
+    env_file = ".env"
+    config = {}
+    
+    if os.path.exists(env_file):
+        with open(env_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    config[key.strip()] = value.strip()
+    
+    return config
+
+
 def main():
     """Main function."""
     args = parse_arguments()
+    
+    # Handle configuration
+    if args.configure:
+        configure_provider()
+        return
+    
+    # Load configuration from .env file
+    env_config = load_env_config()
+    
+    # Override with command line arguments if provided
+    provider = args.provider
+    if 'PROVIDER' in env_config and args.provider == 'mock':
+        provider = env_config['PROVIDER']
+    
+    api_key = args.api_key
+    if api_key is None and f"{provider.upper()}_API_KEY" in env_config:
+        api_key = env_config[f"{provider.upper()}_API_KEY"]
+    
+    model = args.model
+    if model is None and f"{provider.upper()}_MODEL" in env_config:
+        model = env_config[f"{provider.upper()}_MODEL"]
+    
+    base_url = args.base_url
+    if base_url is None and 'LOCAL_BASE_URL' in env_config:
+        base_url = env_config['LOCAL_BASE_URL']
     
     # Handle information requests
     if args.list_prompts:
@@ -193,10 +338,10 @@ def main():
     
     # Create configuration
     config = AgentConfig(
-        provider=args.provider,
-        model=args.model,
-        api_key=args.api_key,
-        base_url=args.base_url,
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
         execution_mode=args.mode,
         categories=args.categories,
         max_prompts=args.max_prompts,
@@ -216,9 +361,9 @@ def main():
         print(f"Running {len(args.custom_prompts)} custom prompts...")
         agent.run_custom_prompts(args.custom_prompts)
     else:
-        print("Starting Simple Agent App...")
-        print(f"Provider: {args.provider}")
-        print(f"Model: {args.model or 'default'}")
+        print("Starting Simple Token Burner App...")
+        print(f"Provider: {provider}")
+        print(f"Model: {model or 'default'}")
         print(f"Mode: {args.mode}")
         print(f"Categories: {', '.join(args.categories)}")
         

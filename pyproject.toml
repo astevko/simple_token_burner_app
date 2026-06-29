@@ -1,0 +1,43 @@
+[project]
+name = "simple-token-burner-app"
+version = "1.0.0"
+description = "A standalone application for running LLM prompts with comprehensive logging"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Andy Stevko", email = "andy.stevko@gmail.com" }
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0.0"]
+anthropic = ["anthropic>=0.3.0"]
+requests = ["requests>=2.25.0"]
+
+[project.scripts]
+simple-token-burner = "main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+extras = ["openai", "anthropic", "requests"]
+
+[tool.black]
+line-length = 88
+target-version = ["py38", "py39", "py310", "py311", "py312"]
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = "E203"
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+python_files = "test_*.py"
+testpaths = ["tests"]
