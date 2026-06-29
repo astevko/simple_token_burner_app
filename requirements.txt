@@ -1,0 +1,17 @@
+# Core dependencies
+requests>=2.25.0
+
+# Optional dependencies for specific providers
+# Uncomment the ones you need:
+
+# For OpenAI
+# openai>=1.0.0
+
+# For Anthropic
+# anthropic>=0.3.0
+
+# For development
+pytest>=7.0.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
