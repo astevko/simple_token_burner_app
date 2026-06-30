@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "A standalone Python application that repeatedly runs prompts against an LLM and logs comprehensive metrics."
 readme = "README.md"
 requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [
+    { name = "Andy Stevko", email = "andy.stevko@gmail.com" }
+]
 dependencies = [
     "requests>=2.25.0",
     "python-dotenv>=1.0.0",
