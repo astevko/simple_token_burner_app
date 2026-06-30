@@ -338,6 +338,12 @@ def main():
         provider = env_config['PROVIDER']
     
     api_key = args.api_key
+    if api_key is None and provider == "router":
+        api_key = (
+            env_config.get("BURNER_ROUTER_API_KEY")
+            or env_config.get("ROUTER_API_KEY")
+            or env_config.get("API_AUTH_TOKEN")
+        )
     if api_key is None and f"{provider.upper()}_API_KEY" in env_config:
         api_key = env_config[f"{provider.upper()}_API_KEY"]
     

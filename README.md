@@ -40,6 +40,7 @@ cp .env.example .env
 |----------|-------------|
 | `BURNER_PROVIDER` | LLM provider (`mock`, `router`, `openai`, `anthropic`, `local`) |
 | `BURNER_BASE_URL` | Base URL for `router` or `local` providers |
+| `BURNER_ROUTER_API_KEY` | Shared API key when the router requires `api_auth_token` |
 | `BURNER_MODEL` | Model name (`auto`, logical model, or deployment id for router) |
 | `BURNER_MAX_PROMPTS` | Maximum prompts to run (omit for all) |
 | `BURNER_MODE` | `infer` (production) or `benchmark` (measure all deployments) |
@@ -52,6 +53,7 @@ Example for driving the Fancy LLM Router:
 ```env
 BURNER_PROVIDER=router
 BURNER_BASE_URL=http://localhost:8000
+BURNER_ROUTER_API_KEY=your-long-random-secret
 BURNER_MODEL=auto
 BURNER_MAX_PROMPTS=10
 ```

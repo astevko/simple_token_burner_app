@@ -72,7 +72,15 @@ class LLMClient:
             base_url: Base URL for local providers
         """
         self.provider = LLMProvider(provider.lower())
-        self.api_key = api_key or os.getenv(f"{provider.upper()}_API_KEY")
+        if self.provider == LLMProvider.ROUTER:
+            self.api_key = (
+                api_key
+                or os.getenv("BURNER_ROUTER_API_KEY")
+                or os.getenv("ROUTER_API_KEY")
+                or os.getenv("API_AUTH_TOKEN")
+            )
+        else:
+            self.api_key = api_key or os.getenv(f"{provider.upper()}_API_KEY")
         self.model = model or self._get_default_model()
         self.base_url = base_url
         self.burner_mode = BurnerMode(burner_mode.lower())
@@ -126,17 +134,49 @@ class LLMClient:
         """Generate 16-char SHA256 hash (matches router)."""
         return hashlib.sha256(prompt.encode('utf-8')).hexdigest()[:16]
 
-    def list_router_deployments(self) -> List[str]:
+    def _router_auth_headers(self) -> Dict[str, str]:
+        """Headers for authenticated Fancy LLM Router API calls."""
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
+
+    def list_router_deployments(self, root_id: Optional[str] = None) -> List[str]:
         """Fetch deployment ids from the Fancy LLM Router."""
         if self.provider != LLMProvider.ROUTER:
             return []
         url = f"{self.base_url.rstrip('/')}/api/v1/models"
-        response = requests.get(url, timeout=30)
+        response = requests.get(
+            url,
+            headers=self._router_auth_headers(),
+            timeout=30,
+        )
         response.raise_for_status()
         data = response.json()
-        if isinstance(data, list):
-            return data
-        return []
+        all_deps = data if isinstance(data, list) else []
+        blocked: set[str] = set()
+        if root_id:
+            try:
+                roots_url = (
+                    f"{self.base_url.rstrip('/')}/api/v1/analytics/roots/"
+                    f"{root_id}/deployments"
+                )
+                roots_resp = requests.get(
+                    roots_url,
+                    headers=self._router_auth_headers(),
+                    timeout=30,
+                )
+                if roots_resp.ok:
+                    blocked = {
+                        d["deployment_id"]
+                        for d in roots_resp.json().get("deployments", [])
+                        if d.get("state") == "blocked"
+                    }
+            except Exception:
+                pass
+        return self._filter_deployments(
+            [dep for dep in all_deps if dep not in blocked]
+        )
 
     def _filter_deployments(self, all_deployments: List[str]) -> List[str]:
         if self.measure_deployments.strip().lower() == "all":
@@ -154,7 +194,9 @@ class LLMClient:
         temperature: float = 0.0,
     ) -> List[LLMResponse]:
         """Measure a root prompt across selected router deployments."""
-        deployments = self._filter_deployments(self.list_router_deployments())
+        deployments = self._filter_deployments(
+            self.list_router_deployments(root_id=root_id)
+        )
         results: List[LLMResponse] = []
         for deployment_id in deployments:
             results.append(
@@ -376,9 +418,7 @@ class LLMClient:
         if intent == "infer" and root_id:
             payload['root_id'] = root_id
 
-        headers = {'Content-Type': 'application/json'}
-        if self.api_key:
-            headers['Authorization'] = f"Bearer {self.api_key}"
+        headers = self._router_auth_headers()
 
         url = f"{self.base_url.rstrip('/')}/api/v1/complete"
         if self.request_timeout > 0:
