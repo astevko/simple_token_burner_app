@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from .llm_client import LLMClient, LLMProvider, BurnerMode
-from .prompts import get_prompts_by_category, get_random_prompt, ALL_PROMPTS, get_prompt_catalog, PROMPT_CATALOG
+from .prompts import get_prompts_by_category, get_random_prompt, ALL_PROMPTS, get_prompt_catalog, PROMPT_CATALOG, get_response_budget
 from .logger import AgentLogger
 
 
@@ -32,7 +32,7 @@ class AgentConfig:
     categories: List[str] = field(default_factory=lambda: ["small", "medium", "large", "xl"])
     max_prompts: int = None
     delay_between_prompts: float = 0.0
-    max_tokens: int = 1000
+    max_tokens: int = None  # None = per-prompt response budget from catalog (benchmark)
     temperature: float = 0.7
     log_dir: str = "logs"
     enable_console_logging: bool = True
@@ -196,9 +196,10 @@ class SimpleAgent:
         self.logger.logger.info(f"Executing prompt (category: {category}): {prompt[:100]}...")
         
         # Execute the prompt
+        max_tokens = self.config.max_tokens if self.config.max_tokens is not None else 1000
         response = self.llm_client.execute_prompt(
             prompt=prompt,
-            max_tokens=self.config.max_tokens,
+            max_tokens=max_tokens,
             temperature=self.config.temperature,
             root_id=root_id,
             expected_answer=expected_answer,
@@ -259,15 +260,24 @@ class SimpleAgent:
             f"Benchmark run {self.llm_client.benchmark_run_id}: "
             f"{len(catalog)} prompt(s) × deployments"
         )
+        if self.config.max_tokens is not None:
+            print(f"Response budget: {self.config.max_tokens} tokens (CLI override)")
+        else:
+            print("Response budget: per-category from catalog (small 256, medium 512, large 1024, xl 2048)")
 
         try:
             for entry in catalog:
+                budget = (
+                    self.config.max_tokens
+                    if self.config.max_tokens is not None
+                    else get_response_budget(entry["category"], entry)
+                )
                 responses = self.llm_client.execute_benchmark_prompt(
                     root_id=entry["root_id"],
                     prompt=entry["text"],
                     expected_answer=entry.get("expected_answer"),
                     category=entry["category"],
-                    max_tokens=self.config.max_tokens,
+                    max_tokens=budget,
                     temperature=0.0,
                 )
                 for response in responses:
@@ -275,8 +285,12 @@ class SimpleAgent:
                     self.logger.log_prompt_execution(response, entry["category"])
                     judge = (response.measurement or {}).get("judge", {})
                     status = "PASS" if judge.get("pass") else "FAIL"
-                    dep = response.deployment or "?"
+                    if response.error and not judge:
+                        status = "ERROR"
+                    dep = response.deployment or response.model or "?"
                     print(f"  [{entry['root_id']}] {dep}: {status}")
+                    if response.error:
+                        print(f"      {response.error}")
                 if self.config.delay_between_prompts > 0:
                     time.sleep(self.config.delay_between_prompts)
         except KeyboardInterrupt:
@@ -285,6 +299,11 @@ class SimpleAgent:
             self.logger.log_error(e, "Benchmark execution")
         finally:
             self.end_time = time.time()
+            base = (self.config.base_url or "http://localhost:8000").rstrip("/")
+            print(
+                f"\nAnalytics: {base}/analytics"
+                f"  (run {self.llm_client.benchmark_run_id})"
+            )
             self._finalize_session()
 
     def run_custom_prompts(self, prompts: List[str]):

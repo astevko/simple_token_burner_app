@@ -111,8 +111,10 @@ def parse_arguments():
     parser.add_argument(
         '--max-tokens',
         type=int,
-        default=1000,
-        help='Maximum tokens in response (default: 1000)'
+        default=None,
+        help='Override response token budget for all prompts (default: infer=1000; '
+             'benchmark=per-category budget from catalog: small 256, medium 512, '
+             'large 1024, xl 2048)'
     )
     
     parser.add_argument(
@@ -355,6 +357,10 @@ def main():
     if args.list_categories:
         list_categories()
         return
+
+    max_tokens = args.max_tokens
+    if max_tokens is None and args.burner_mode != "benchmark":
+        max_tokens = 1000
     
     # Create configuration
     config = AgentConfig(
@@ -366,7 +372,7 @@ def main():
         categories=args.categories,
         max_prompts=args.max_prompts,
         delay_between_prompts=args.delay,
-        max_tokens=args.max_tokens,
+        max_tokens=max_tokens,
         temperature=args.temperature,
         log_dir=args.log_dir,
         enable_console_logging=not args.no_console,

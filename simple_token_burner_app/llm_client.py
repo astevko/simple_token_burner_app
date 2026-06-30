@@ -79,6 +79,11 @@ class LLMClient:
         self.measure_deployments = measure_deployments or "all"
         self.benchmark_run_id = benchmark_run_id or str(uuid.uuid4())
         self.session_id = session_id or f"burner-{int(time.time())}"
+        self.request_timeout = float(os.getenv("BURNER_REQUEST_TIMEOUT", "0"))
+        self.benchmark_optimize = os.getenv("BURNER_BENCHMARK_OPTIMIZE", "true").lower() in (
+            "1", "true", "yes",
+        )
+        self.benchmark_max_revisions = int(os.getenv("BURNER_BENCHMARK_MAX_REVISIONS", "1"))
         self._initialize_client()
     
     def _get_default_model(self) -> str:
@@ -233,7 +238,7 @@ class LLMClient:
             return LLMResponse(
                 content="",
                 provider=self.provider.value,
-                model=self.model,
+                model=deployment_id or self.model,
                 prompt_hash=prompt_hash,
                 response_time=response_time,
                 input_tokens=0,
@@ -242,6 +247,8 @@ class LLMClient:
                 finish_reason="error",
                 timestamp=time.time(),
                 error=str(e),
+                deployment=deployment_id,
+                root_id=root_id,
             )
 
     def _calculate_response_metrics(self, response: Dict[str, Any]) -> Tuple[int, int, int]:
@@ -356,6 +363,8 @@ class LLMClient:
             payload['category'] = category
         if intent == "measure":
             payload['benchmark_run_id'] = self.benchmark_run_id
+            payload['optimize_on_fail'] = self.benchmark_optimize
+            payload['max_revisions'] = self.benchmark_max_revisions
             pin = deployment_id or (
                 self.model if self.model and self.model != "auto" else None
             )
@@ -372,7 +381,13 @@ class LLMClient:
             headers['Authorization'] = f"Bearer {self.api_key}"
 
         url = f"{self.base_url.rstrip('/')}/api/v1/complete"
-        response = requests.post(url, json=payload, headers=headers, timeout=120)
+        if self.request_timeout > 0:
+            timeout = self.request_timeout
+        elif intent == "measure":
+            timeout = 300.0
+        else:
+            timeout = 120.0
+        response = requests.post(url, json=payload, headers=headers, timeout=timeout)
         if not response.ok:
             detail = response.text
             try:

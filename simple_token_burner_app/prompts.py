@@ -181,6 +181,15 @@ PROMPT_CATEGORIES = {
     'xl': XL_PROMPTS
 }
 
+# Default completion token budget per category (benchmark / measure mode).
+# Use --max-tokens on the CLI to override for an entire run.
+CATEGORY_RESPONSE_BUDGET = {
+    "small": 256,
+    "medium": 512,
+    "large": 1024,
+    "xl": 2048,
+}
+
 # Expected answers for benchmark judge (small prompts)
 SMALL_EXPECTED = {
     "What is the capital of France?": "Paris",
@@ -205,6 +214,7 @@ def _build_prompt_catalog() -> list:
                     "category": category,
                     "text": text.strip(),
                     "expected_answer": expected,
+                    "response_budget": CATEGORY_RESPONSE_BUDGET.get(category, 512),
                 }
             )
     return catalog
@@ -225,6 +235,15 @@ def get_catalog_entry(root_id: str):
         if entry["root_id"] == root_id:
             return entry
     return None
+
+
+def get_response_budget(category: str, entry: dict = None) -> int:
+    """Token budget for a completion, from catalog entry or category default."""
+    if entry:
+        budget = entry.get("response_budget")
+        if budget is not None:
+            return int(budget)
+    return CATEGORY_RESPONSE_BUDGET.get(category.lower(), 512)
 
 
 # All prompts combined
