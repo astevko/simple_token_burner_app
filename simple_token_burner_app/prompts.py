@@ -181,6 +181,52 @@ PROMPT_CATEGORIES = {
     'xl': XL_PROMPTS
 }
 
+# Expected answers for benchmark judge (small prompts)
+SMALL_EXPECTED = {
+    "What is the capital of France?": "Paris",
+    "What is the chemical formula for water?": "H2O",
+    "Who wrote 'Romeo and Juliet'?": "Shakespeare",
+    "What is the square root of 144?": "12",
+    "What is the largest planet in our solar system?": "Jupiter",
+    "How many continents are there on Earth?": "7",
+}
+
+
+def _build_prompt_catalog() -> list:
+    """Build stable root ids and optional expected answers for each prompt."""
+    catalog = []
+    for category, prompts in PROMPT_CATEGORIES.items():
+        for index, text in enumerate(prompts, start=1):
+            root_id = f"{category}-{index:02d}"
+            expected = SMALL_EXPECTED.get(text.strip()) if category == "small" else None
+            catalog.append(
+                {
+                    "root_id": root_id,
+                    "category": category,
+                    "text": text.strip(),
+                    "expected_answer": expected,
+                }
+            )
+    return catalog
+
+
+PROMPT_CATALOG = _build_prompt_catalog()
+
+
+def get_prompt_catalog(category: str = None) -> list:
+    """Return catalog entries, optionally filtered by category."""
+    if category and category.lower() in PROMPT_CATEGORIES:
+        return [e for e in PROMPT_CATALOG if e["category"] == category.lower()]
+    return list(PROMPT_CATALOG)
+
+
+def get_catalog_entry(root_id: str):
+    for entry in PROMPT_CATALOG:
+        if entry["root_id"] == root_id:
+            return entry
+    return None
+
+
 # All prompts combined
 ALL_PROMPTS = SMALL_PROMPTS + MEDIUM_PROMPTS + LARGE_PROMPTS + XL_PROMPTS
 

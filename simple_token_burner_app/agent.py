@@ -8,8 +8,8 @@ from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .llm_client import LLMClient, LLMProvider
-from .prompts import get_prompts_by_category, get_random_prompt, ALL_PROMPTS
+from .llm_client import LLMClient, LLMProvider, BurnerMode
+from .prompts import get_prompts_by_category, get_random_prompt, ALL_PROMPTS, get_prompt_catalog, PROMPT_CATALOG
 from .logger import AgentLogger
 
 
@@ -38,6 +38,9 @@ class AgentConfig:
     enable_console_logging: bool = True
     enable_file_logging: bool = True
     custom_prompts: List[str] = field(default_factory=list)
+    burner_mode: str = "infer"
+    measure_deployments: str = "all"
+    benchmark_run_id: str = None
 
 
 class SimpleAgent:
@@ -64,7 +67,10 @@ class SimpleAgent:
             provider=self.config.provider,
             api_key=self.config.api_key,
             model=self.config.model,
-            base_url=self.config.base_url
+            base_url=self.config.base_url,
+            burner_mode=self.config.burner_mode,
+            measure_deployments=self.config.measure_deployments,
+            benchmark_run_id=self.config.benchmark_run_id,
         )
         
         # Track execution state
@@ -80,6 +86,8 @@ class SimpleAgent:
         config_dict = {
             'provider': self.config.provider,
             'model': self.config.model,
+            'burner_mode': self.config.burner_mode,
+            'measure_deployments': self.config.measure_deployments,
             'execution_mode': self.config.execution_mode,
             'categories': self.config.categories,
             'max_prompts': self.config.max_prompts,
@@ -176,6 +184,14 @@ class SimpleAgent:
         
         if category is None:
             category = self._get_prompt_category(prompt)
+
+        root_id = None
+        expected_answer = None
+        for entry in PROMPT_CATALOG:
+            if entry["text"] == prompt.strip():
+                root_id = entry["root_id"]
+                expected_answer = entry.get("expected_answer")
+                break
         
         self.logger.logger.info(f"Executing prompt (category: {category}): {prompt[:100]}...")
         
@@ -183,7 +199,10 @@ class SimpleAgent:
         response = self.llm_client.execute_prompt(
             prompt=prompt,
             max_tokens=self.config.max_tokens,
-            temperature=self.config.temperature
+            temperature=self.config.temperature,
+            root_id=root_id,
+            expected_answer=expected_answer,
+            category=category,
         )
         
         # Log the execution
@@ -197,6 +216,10 @@ class SimpleAgent:
     
     def run(self):
         """Run the agent to execute prompts repeatedly."""
+        if self.config.burner_mode == BurnerMode.BENCHMARK.value:
+            self.run_benchmark()
+            return
+
         self.start_time = time.time()
         
         try:
@@ -222,6 +245,48 @@ class SimpleAgent:
             self.end_time = time.time()
             self._finalize_session()
     
+    def run_benchmark(self):
+        """Measure catalog prompts across router deployments; optimize on failure."""
+        self.start_time = time.time()
+        catalog = []
+        for category in self.config.categories:
+            catalog.extend(get_prompt_catalog(category))
+
+        if self.config.max_prompts:
+            catalog = catalog[: self.config.max_prompts]
+
+        print(
+            f"Benchmark run {self.llm_client.benchmark_run_id}: "
+            f"{len(catalog)} prompt(s) × deployments"
+        )
+
+        try:
+            for entry in catalog:
+                responses = self.llm_client.execute_benchmark_prompt(
+                    root_id=entry["root_id"],
+                    prompt=entry["text"],
+                    expected_answer=entry.get("expected_answer"),
+                    category=entry["category"],
+                    max_tokens=self.config.max_tokens,
+                    temperature=0.0,
+                )
+                for response in responses:
+                    self.prompts_executed += 1
+                    self.logger.log_prompt_execution(response, entry["category"])
+                    judge = (response.measurement or {}).get("judge", {})
+                    status = "PASS" if judge.get("pass") else "FAIL"
+                    dep = response.deployment or "?"
+                    print(f"  [{entry['root_id']}] {dep}: {status}")
+                if self.config.delay_between_prompts > 0:
+                    time.sleep(self.config.delay_between_prompts)
+        except KeyboardInterrupt:
+            self.logger.logger.info("Benchmark stopped by user.")
+        except Exception as e:
+            self.logger.log_error(e, "Benchmark execution")
+        finally:
+            self.end_time = time.time()
+            self._finalize_session()
+
     def run_custom_prompts(self, prompts: List[str]):
         """Run a list of custom prompts."""
         self.config.custom_prompts = prompts

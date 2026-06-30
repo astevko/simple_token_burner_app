@@ -1,0 +1,22 @@
+[project]
+name = "simple-token-burner-app"
+version = "0.1.0"
+description = "A standalone Python application that repeatedly runs prompts against an LLM and logs comprehensive metrics."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "requests>=2.25.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0.0"]
+anthropic = ["anthropic>=0.3.0"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]

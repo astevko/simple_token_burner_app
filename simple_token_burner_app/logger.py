@@ -1,5 +1,5 @@
 """
-Comprehensive logging module for the Simple Agent App.
+Comprehensive logging module for the Simple Token Burner App.
 """
 
 import os
@@ -29,7 +29,7 @@ class AgentLogger:
         self.enable_file = enable_file
         
         # Create logger
-        self.logger = logging.getLogger("simple_agent_app")
+        self.logger = logging.getLogger("simple_token_burner_app")
         self.logger.setLevel(logging.INFO)
         
         # Clear existing handlers

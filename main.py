@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple Agent App - Main entry point
+Simple Token Burner App - Main entry point
 
 This application repeatedly runs prompts against an LLM and logs comprehensive metrics
 including prompt hashing, response times, token usage, and more.
@@ -14,31 +14,34 @@ from typing import List
 # Add the current directory to Python path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from simple_agent_app.agent import SimpleAgent, AgentConfig, ExecutionMode
-from simple_agent_app.prompts import ALL_PROMPTS
-from simple_agent_app.llm_client import LLMProvider
+from simple_token_burner_app.agent import SimpleAgent, AgentConfig, ExecutionMode
+from simple_token_burner_app.prompts import ALL_PROMPTS
+from simple_token_burner_app.llm_client import LLMProvider
+from simple_token_burner_app.env import load_dotenv_file, getenv_int, getenv_str
 
 
 def parse_arguments():
     """Parse command line arguments."""
+    load_dotenv_file()
+
     parser = argparse.ArgumentParser(
-        description="Simple Agent App - Run LLM prompts with comprehensive logging"
+        description="Simple Token Burner App - Run LLM prompts with comprehensive logging"
     )
     
     # Provider arguments
     parser.add_argument(
         '--provider',
         type=str,
-        default='mock',
+        default=os.environ.get('BURNER_PROVIDER', 'mock'),
         choices=[p.value for p in LLMProvider],
-        help='LLM provider to use (default: mock)'
+        help='LLM provider to use (default: BURNER_PROVIDER from .env, else mock)'
     )
     
     parser.add_argument(
         '--model',
         type=str,
-        default=None,
-        help='Model to use (default: provider-specific default)'
+        default=os.environ.get('BURNER_MODEL'),
+        help='Model to use (default: BURNER_MODEL from .env, else provider-specific default)'
     )
     
     parser.add_argument(
@@ -51,10 +54,26 @@ def parse_arguments():
     parser.add_argument(
         '--base-url',
         type=str,
-        default=None,
-        help='Base URL for local LLM providers'
+        default=os.environ.get('BURNER_BASE_URL'),
+        help='Base URL for the local or router provider '
+             '(default: BURNER_BASE_URL from .env; router fallback: http://localhost:8000)'
     )
     
+    parser.add_argument(
+        '--burner-mode',
+        type=str,
+        default=getenv_str('BURNER_MODE', 'infer'),
+        choices=['infer', 'benchmark'],
+        help='infer = normal routing; benchmark = measure all deployments (default: BURNER_MODE)'
+    )
+
+    parser.add_argument(
+        '--measure-deployments',
+        type=str,
+        default=getenv_str('BURNER_MEASURE_DEPLOYMENTS', 'all'),
+        help='Comma-separated deployment ids or "all" (default: BURNER_MEASURE_DEPLOYMENTS)'
+    )
+
     # Execution mode arguments
     parser.add_argument(
         '--mode',
@@ -76,8 +95,9 @@ def parse_arguments():
     parser.add_argument(
         '--max-prompts',
         type=int,
-        default=None,
-        help='Maximum number of prompts to execute (default: all available)'
+        default=getenv_int('BURNER_MAX_PROMPTS'),
+        help='Maximum number of prompts to execute '
+             '(default: BURNER_MAX_PROMPTS from .env, else all available)'
     )
     
     parser.add_argument(
@@ -152,7 +172,7 @@ def list_prompts():
     print("Available Prompts:")
     print("=" * 50)
     
-    from simple_agent_app.prompts import PROMPT_CATEGORIES
+    from simple_token_burner_app.prompts import PROMPT_CATEGORIES
     
     for category, prompts in PROMPT_CATEGORIES.items():
         print(f"\n{category.upper()} PROMPTS ({len(prompts)}):")
@@ -170,7 +190,7 @@ def list_categories():
     print("Available Prompt Categories:")
     print("=" * 40)
     
-    from simple_agent_app.prompts import PROMPT_CATEGORIES
+    from simple_token_burner_app.prompts import PROMPT_CATEGORIES
     
     for category, prompts in PROMPT_CATEGORIES.items():
         print(f"  {category}: {len(prompts)} prompts")
@@ -206,7 +226,9 @@ def main():
         log_dir=args.log_dir,
         enable_console_logging=not args.no_console,
         enable_file_logging=not args.no_file,
-        custom_prompts=args.custom_prompts or []
+        custom_prompts=args.custom_prompts or [],
+        burner_mode=args.burner_mode,
+        measure_deployments=args.measure_deployments,
     )
     
     # Create and run agent
@@ -216,8 +238,9 @@ def main():
         print(f"Running {len(args.custom_prompts)} custom prompts...")
         agent.run_custom_prompts(args.custom_prompts)
     else:
-        print("Starting Simple Agent App...")
+        print("Starting Simple Token Burner App...")
         print(f"Provider: {args.provider}")
+        print(f"Burner mode: {args.burner_mode}")
         print(f"Model: {args.model or 'default'}")
         print(f"Mode: {args.mode}")
         print(f"Categories: {', '.join(args.categories)}")
@@ -227,7 +250,11 @@ def main():
         else:
             print(f"Max prompts: all available ({len(ALL_PROMPTS)})")
         
-        print(f"Delay between prompts: {args.delay}s")
+        print(f"Delay between prompts: {args.delay}s", end="")
+        if args.burner_mode == "benchmark":
+            print(" (between catalog prompts, not deployments)")
+        else:
+            print()
         print(f"Log directory: {args.log_dir}")
         print("-" * 50)
         
