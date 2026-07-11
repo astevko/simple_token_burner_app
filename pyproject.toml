@@ -11,6 +11,8 @@ authors = [
 dependencies = [
     "requests>=2.25.0",
     "python-dotenv>=1.0.0",
+    "litellm>=1.91.1",
+    "smart-llm",
 ]
 
 [project.optional-dependencies]
@@ -24,3 +26,6 @@ dev = [
     "flake8>=6.0.0",
     "mypy>=1.0.0",
 ]
+
+[tool.uv.sources]
+smart-llm = { path = "../smart_llm", editable = true }

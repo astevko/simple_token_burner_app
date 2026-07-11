@@ -1,6 +1,17 @@
 """
-Computer-generated prompts of various sizes that exercise reasoning capabilities.
+Prompt content and per-category execution parameters for simple_token_burner_app.
+
+Each category carries:
+  - prompt texts
+  - a default system prompt (used in both infer and benchmark modes)
+  - a token cap (max_tokens ceiling for benchmark / measure mode)
+  - stop sequences (benchmark mode only)
+  - a response_budget (default max_tokens for non-benchmark infer runs)
+
+The data formerly in prompt_envelope.py has been merged here.
 """
+
+from typing import List, Optional
 
 # Small prompts (simple reasoning)
 SMALL_PROMPTS = [
@@ -244,6 +255,63 @@ def get_response_budget(category: str, entry: dict = None) -> int:
         if budget is not None:
             return int(budget)
     return CATEGORY_RESPONSE_BUDGET.get(category.lower(), 512)
+
+
+# ---------------------------------------------------------------------------
+# Per-category execution parameters (merged from prompt_envelope.py)
+# ---------------------------------------------------------------------------
+
+# System prompts used in both infer and benchmark modes.
+CATEGORY_SYSTEM_PROMPT: dict[str, str] = {
+    "small": (
+        "You are a precise Q&A assistant. Answer in exactly one short sentence. "
+        "Give only the direct answer to the question. "
+        "Do not use lists, bullet points, numbering, code blocks, or repetition."
+    ),
+    "medium": (
+        "You are a precise assistant. Answer in 2-4 concise sentences. "
+        "Stay on topic. Do not use bullet lists unless the question explicitly asks for them."
+    ),
+    "large": (
+        "You are a precise assistant. Answer the question directly and stay on topic. "
+        "Use short paragraphs or a brief numbered list only when the question requires structure."
+    ),
+    "xl": (
+        "You are a precise assistant. Follow the question structure but avoid filler, "
+        "repetition, and unrelated tangents."
+    ),
+}
+
+# Hard token ceilings applied in benchmark/measure mode.
+CATEGORY_TOKEN_CAP: dict[str, int] = {
+    "small": 80,
+    "medium": 200,
+    "large": 512,
+    "xl": 1024,
+}
+
+# Stop sequences for benchmark mode (prevent runaway completions).
+CATEGORY_STOP_SEQUENCES: List[str] = ["\n\n", "\n- ", "\n* ", "\n1.", "```"]
+
+
+def _normalize_category(category: Optional[str]) -> str:
+    cat = (category or "small").lower()
+    return cat if cat in CATEGORY_SYSTEM_PROMPT else "medium"
+
+
+def get_system_prompt(category: Optional[str]) -> str:
+    """Return the system prompt for a category (infer + benchmark)."""
+    return CATEGORY_SYSTEM_PROMPT[_normalize_category(category)]
+
+
+def get_token_cap(category: Optional[str], requested: int) -> int:
+    """Return the benchmark token cap (min of requested and hard ceiling)."""
+    cap = CATEGORY_TOKEN_CAP.get(_normalize_category(category), requested)
+    return min(requested, cap)
+
+
+def get_stop_sequences() -> List[str]:
+    return list(CATEGORY_STOP_SEQUENCES)
 
 
 # All prompts combined

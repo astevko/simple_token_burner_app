@@ -106,8 +106,8 @@ Notes:
 ### Benchmark mode (measure + specialize prompts)
 
 Each catalog prompt has a stable `root_id` (e.g. `small-01`). In **benchmark** mode
-the client fetches `GET /api/v1/models`, then sends `intent=measure` with a pinned
-deployment per request. The router judges responses, stores baselines in SQLite, and
+the client sends category-specific **system prompts** and stop sequences with each
+`intent=measure` request. The router judges responses, stores baselines, and
 refactors failing prompts into per-deployment variants.
 
 ```bash

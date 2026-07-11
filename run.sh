@@ -7,7 +7,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# Load defaults from .env (e.g. BURNER_PROVIDER, BURNER_BASE_URL, BURNER_MODEL, BURNER_MAX_PROMPTS).
+# Load defaults from .env
 if [ -f .env ]; then
     set -a
     # shellcheck disable=SC1091
@@ -27,8 +27,8 @@ DESCRIPTION:
     executes the app via `uv run main.py`.
 
     Running with no arguments starts the interactive menu, which lets you:
-      - Run prompts          (choose provider, burner mode, categories, limits, delay)
-      - Run benchmark        (router: measure prompts across all deployments)
+      - Run prompts          (infer mode, any LiteLLM model)
+      - Run benchmark        (measure prompts, temperature=0, capped tokens)
       - Run custom prompts   (enter your own prompts, one per line)
       - List available prompts
       - List prompt categories
@@ -40,11 +40,12 @@ REQUIREMENTS:
     gum   https://github.com/charmbracelet/gum   (brew install gum)
     uv    https://docs.astral.sh/uv/             (brew install uv)
 
-ENVIRONMENT:
-    Optional .env in the project root (see .env.example):
-      BURNER_PROVIDER, BURNER_BASE_URL, BURNER_MODEL, BURNER_MAX_PROMPTS,
-      BURNER_MODE, BURNER_MEASURE_DEPLOYMENTS
-    Loaded by main.py and this script; CLI flags override .env values.
+ENVIRONMENT (.env in project root):
+    BURNER_MODEL        LiteLLM model string, e.g. "openai/Qwen/Qwen3-32B"
+    BURNER_BASE_URL     Custom API base URL (Nebius, Ollama, etc.)
+    OPENAI_API_KEY      API key (used when model prefix is "openai/")
+    BURNER_MODE         Default burner mode (infer | benchmark)
+    BURNER_MAX_PROMPTS  Default max prompts
 EOF
 }
 
@@ -58,14 +59,12 @@ esac
 if ! command -v gum >/dev/null 2>&1; then
     echo "Error: 'gum' is not installed."
     echo "Install it with: brew install gum"
-    echo "See https://github.com/charmbracelet/gum for other platforms."
     exit 1
 fi
 
 if ! command -v uv >/dev/null 2>&1; then
     echo "Error: 'uv' is not installed."
     echo "Install it with: brew install uv"
-    echo "See https://docs.astral.sh/uv/ for other platforms."
     exit 1
 fi
 
@@ -81,59 +80,50 @@ ACTION=$(gum choose --header "What would you like to do?" \
 
 cmd=(uv run main.py)
 
-# Shared helper: prompt for router benchmark / infer run options.
-# Sets globals: PROVIDER, BURNER_MODE, BASE_URL, MODEL, MEASURE_DEPLOYMENTS,
-# MODE, CATEGORIES, MAX_PROMPTS, DELAY, API_KEY
+# ---------------------------------------------------------------------------
+# Shared helper: prompt for model + common run options.
+# Sets global cmd array.
+# ---------------------------------------------------------------------------
 prompt_run_options() {
     local default_burner_mode="${1:-infer}"
 
-    PROVIDER=$(gum choose --header "Select an LLM provider" mock router openai anthropic local \
-        --selected "${BURNER_PROVIDER:-router}")
-    cmd+=(--provider "$PROVIDER")
+    # ── Model string ────────────────────────────────────────────────────────
+    MODEL=$(gum input \
+        --header "LiteLLM model string  (e.g. openai/Qwen/Qwen3-32B, ollama/llama3)" \
+        --placeholder "openai/..." \
+        --value "${BURNER_MODEL:-}")
+    [ -n "$MODEL" ] && cmd+=(--model "$MODEL")
 
-    BURNER_MODE=$(gum choose --header "Burner mode" infer benchmark \
+    # ── API key ─────────────────────────────────────────────────────────────
+    API_KEY=$(gum input --password \
+        --header "API key (leave blank to use env var)" \
+        --placeholder "sk-... or leave blank")
+    [ -n "$API_KEY" ] && cmd+=(--api-key "$API_KEY")
+
+    # ── Base URL (Nebius, Ollama, proxy, etc.) ───────────────────────────────
+    BASE_URL=$(gum input \
+        --header "Base URL (leave blank for default / already in .env)" \
+        --value "${BURNER_BASE_URL:-}")
+    [ -n "$BASE_URL" ] && cmd+=(--base-url "$BASE_URL")
+
+    # ── Burner mode ──────────────────────────────────────────────────────────
+    BURNER_MODE_SEL=$(gum choose --header "Burner mode" infer benchmark \
         --selected "${default_burner_mode:-${BURNER_MODE:-infer}}")
-    cmd+=(--burner-mode "$BURNER_MODE")
+    cmd+=(--burner-mode "$BURNER_MODE_SEL")
 
-    if [ "$BURNER_MODE" = "benchmark" ] && [ "$PROVIDER" != "router" ]; then
-        gum style --foreground 1 "Benchmark mode requires the router provider."
-        exit 1
-    fi
-
-    if [ "$PROVIDER" != "mock" ]; then
-        API_KEY=$(gum input --password --header "API key (leave blank to skip)" --placeholder "sk-...")
-        [ -n "$API_KEY" ] && cmd+=(--api-key "$API_KEY")
-    fi
-
-    if [ "$PROVIDER" = "local" ]; then
-        BASE_URL=$(gum input --header "Base URL for the local provider" \
-            --value "${BURNER_BASE_URL:-http://localhost:11434}")
-        [ -n "$BASE_URL" ] && cmd+=(--base-url "$BASE_URL")
-    fi
-
-    if [ "$PROVIDER" = "router" ]; then
-        BASE_URL=$(gum input --header "Fancy LLM Router API base URL" \
-            --value "${BURNER_BASE_URL:-http://localhost:8000}")
-        [ -n "$BASE_URL" ] && cmd+=(--base-url "$BASE_URL")
-    fi
-
-    if [ "$BURNER_MODE" = "benchmark" ]; then
+    if [ "$BURNER_MODE_SEL" = "benchmark" ]; then
         gum style --foreground 212 \
-            "Benchmark: fetches deployments from the router and measures each prompt with intent=measure."
-        MEASURE_DEPLOYMENTS=$(gum input --header "Deployments to measure (all, or comma-separated ids)" \
-            --placeholder "all" --value "${BURNER_MEASURE_DEPLOYMENTS:-all}")
-        [ -n "$MEASURE_DEPLOYMENTS" ] && cmd+=(--measure-deployments "$MEASURE_DEPLOYMENTS")
+            "Benchmark: temperature=0, per-category token caps, stop sequences."
         cmd+=(--temperature 0)
-    else
-        MODEL=$(gum input --header "Model (leave blank for provider/router default)" \
-            --placeholder "auto" --value "${BURNER_MODEL:-}")
-        [ -n "$MODEL" ] && cmd+=(--model "$MODEL")
     fi
 
-    MODE=$(gum choose --header "Prompt execution mode" sequential random categorical custom)
+    # ── Execution mode ───────────────────────────────────────────────────────
+    MODE=$(gum choose --header "Prompt execution mode" sequential random categorical)
     cmd+=(--mode "$MODE")
 
-    CATEGORIES=$(gum choose --no-limit --header "Prompt categories (space to select, enter to confirm; none = all)" \
+    # ── Categories ───────────────────────────────────────────────────────────
+    CATEGORIES=$(gum choose --no-limit \
+        --header "Prompt categories (space to select, enter to confirm; none = all)" \
         small medium large xl)
     if [ -n "$CATEGORIES" ]; then
         cmd+=(--categories)
@@ -142,6 +132,7 @@ prompt_run_options() {
         done <<< "$CATEGORIES"
     fi
 
+    # ── Limits ───────────────────────────────────────────────────────────────
     MAX_PROMPTS=$(gum input --header "Max prompts (leave blank for all)" \
         --placeholder "10" --value "${BURNER_MAX_PROMPTS:-}")
     [ -n "$MAX_PROMPTS" ] && cmd+=(--max-prompts "$MAX_PROMPTS")
@@ -154,6 +145,9 @@ prompt_run_options() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
 case "$ACTION" in
     "List available prompts")
         cmd+=(--list-prompts)
@@ -164,11 +158,29 @@ case "$ACTION" in
         ;;
 
     "Run custom prompts")
-        PROMPTS=$(gum write --header "Enter one prompt per line" --placeholder "What is AI?")
+        PROMPTS=$(gum write --header "Enter one prompt per line" \
+            --placeholder "What is AI?")
         if [ -z "$PROMPTS" ]; then
             echo "No prompts entered. Aborting."
             exit 1
         fi
+        # Still ask for model + key so the call can actually go through.
+        MODEL=$(gum input \
+            --header "LiteLLM model string" \
+            --placeholder "openai/..." \
+            --value "${BURNER_MODEL:-}")
+        [ -n "$MODEL" ] && cmd+=(--model "$MODEL")
+
+        API_KEY=$(gum input --password \
+            --header "API key (leave blank to use env var)" \
+            --placeholder "leave blank")
+        [ -n "$API_KEY" ] && cmd+=(--api-key "$API_KEY")
+
+        BASE_URL=$(gum input \
+            --header "Base URL (leave blank for default)" \
+            --value "${BURNER_BASE_URL:-}")
+        [ -n "$BASE_URL" ] && cmd+=(--base-url "$BASE_URL")
+
         cmd+=(--custom-prompts)
         while IFS= read -r line; do
             [ -n "$line" ] && cmd+=("$line")

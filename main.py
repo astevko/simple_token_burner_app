@@ -16,7 +16,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from simple_token_burner_app.agent import SimpleAgent, AgentConfig, ExecutionMode
 from simple_token_burner_app.prompts import ALL_PROMPTS
-from simple_token_burner_app.llm_client import LLMProvider
 from simple_token_burner_app.env import load_dotenv_file, getenv_int, getenv_str
 
 
@@ -30,18 +29,23 @@ def parse_arguments():
     
     # Provider arguments
     parser.add_argument(
-        '--provider',
-        type=str,
-        default=os.environ.get('BURNER_PROVIDER', 'mock'),
-        choices=[p.value for p in LLMProvider],
-        help='LLM provider to use (default: BURNER_PROVIDER from .env, else mock)'
-    )
-    
-    parser.add_argument(
         '--model',
         type=str,
-        default=os.environ.get('BURNER_MODEL'),
-        help='Model to use (default: BURNER_MODEL from .env, else provider-specific default)'
+        default=os.environ.get('BURNER_MODEL', 'openai/mock-model'),
+        help=(
+            'LiteLLM model string, e.g. "openai/gpt-4o-mini", '
+            '"anthropic/claude-sonnet-4-20250514", "ollama/llama3" '
+            '(default: BURNER_MODEL from .env, else "openai/mock-model")'
+        ),
+    )
+
+    # --provider kept for backward compat; if given without a slash in --model
+    # it is prepended: --provider openai --model gpt-4o → "openai/gpt-4o"
+    parser.add_argument(
+        '--provider',
+        type=str,
+        default=os.environ.get('BURNER_PROVIDER', ''),
+        help='Provider prefix to prepend to --model when --model has no slash (legacy compat)',
     )
     
     parser.add_argument(
@@ -208,100 +212,47 @@ def list_categories():
 
 
 def configure_provider():
-    """Interactive configuration to set up provider information."""
+    """Interactive configuration: write BURNER_MODEL and optional API key to .env."""
     print("Simple Token Burner App - Configuration")
     print("=" * 40)
-    
-    # Get current configuration from .env if it exists
+    print(
+        "Use LiteLLM model strings, e.g.:\n"
+        "  openai/gpt-4o-mini\n"
+        "  anthropic/claude-sonnet-4-20250514\n"
+        "  ollama/llama3\n"
+    )
+
     env_file = ".env"
-    current_config = {}
+    current_config: dict = {}
     if os.path.exists(env_file):
-        with open(env_file, 'r') as f:
+        with open(env_file) as f:
             for line in f:
                 line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, value = line.split('=', 1)
-                    current_config[key.strip()] = value.strip()
-    
-    # Ask for provider
-    providers = [p.value for p in LLMProvider if p.value != 'mock']
-    print("Available LLM Providers:")
-    for i, provider in enumerate(providers, 1):
-        print(f"  {i}. {provider}")
-    
-    while True:
-        try:
-            choice = input(f"Select provider (1-{len(providers)}): ")
-            if choice.isdigit() and 1 <= int(choice) <= len(providers):
-                selected_provider = providers[int(choice) - 1]
-                break
-            else:
-                print(f"Please enter a number between 1 and {len(providers)}")
-        except (ValueError, IndexError):
-            print("Invalid input. Please try again.")
-    
-    # Ask for API key
-    api_key_var = f"{selected_provider.upper()}_API_KEY"
-    current_api_key = current_config.get(api_key_var, "")
-    
-    if current_api_key:
-        use_existing = input(f"Use existing API key for {selected_provider}? (y/n): ").lower()
-        if use_existing == 'y':
-            api_key = current_api_key
-        else:
-            api_key = input(f"Enter API key for {selected_provider}: ").strip()
-    else:
-        api_key = input(f"Enter API key for {selected_provider}: ").strip()
-    
-    # Ask for model (optional)
-    model_var = f"{selected_provider.upper()}_MODEL"
-    current_model = current_config.get(model_var, "")
-    
-    if current_model:
-        use_existing = input(f"Use existing model for {selected_provider}? (y/n): ").lower()
-        if use_existing == 'y':
-            model = current_model
-        else:
-            model = input(f"Enter model for {selected_provider} (leave empty for default): ").strip()
-    else:
-        model = input(f"Enter model for {selected_provider} (leave empty for default): ").strip()
-    
-    # Ask for base URL (for local providers)
-    base_url = ""
-    if selected_provider == 'local':
-        current_base_url = current_config.get("LOCAL_BASE_URL", "")
-        if current_base_url:
-            use_existing = input("Use existing base URL? (y/n): ").lower()
-            if use_existing == 'y':
-                base_url = current_base_url
-            else:
-                base_url = input("Enter base URL for local LLM: ").strip()
-        else:
-            base_url = input("Enter base URL for local LLM: ").strip()
-    
-    # Save configuration to .env file
-    with open(env_file, 'w') as f:
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    current_config[k.strip()] = v.strip()
+
+    current_model = current_config.get("BURNER_MODEL", "")
+    model_input = input(
+        f"Enter LiteLLM model string [{current_model or 'openai/mock-model'}]: "
+    ).strip()
+    model = model_input or current_model or "openai/mock-model"
+
+    api_key = input("API key (leave blank to skip / use env var): ").strip()
+    base_url = input("Base URL (leave blank if not needed): ").strip()
+
+    with open(env_file, "w") as f:
         f.write("# Simple Token Burner App Configuration\n")
-        f.write(f"# Generated on: {__import__('datetime').datetime.now().isoformat()}\n")
-        f.write("\n")
-        f.write("# LLM Provider Configuration\n")
-        f.write(f"PROVIDER={selected_provider}\n")
-        
+        f.write(f"# Generated on: {__import__('datetime').datetime.now().isoformat()}\n\n")
+        f.write(f"BURNER_MODEL={model}\n")
         if api_key:
-            f.write(f"{api_key_var}={api_key}\n")
-        
-        if model:
-            f.write(f"{model_var}={model}\n")
-        
+            provider = model.split("/")[0].upper()
+            f.write(f"{provider}_API_KEY={api_key}\n")
         if base_url:
-            f.write(f"LOCAL_BASE_URL={base_url}\n")
-    
+            f.write(f"BURNER_BASE_URL={base_url}\n")
+
     print(f"\nConfiguration saved to {env_file}")
-    print(f"Provider: {selected_provider}")
-    if model:
-        print(f"Model: {model}")
-    if base_url:
-        print(f"Base URL: {base_url}")
+    print(f"Model: {model}")
 
 
 def load_env_config():
@@ -329,31 +280,26 @@ def main():
         configure_provider()
         return
     
-    # Load configuration from .env file
     env_config = load_env_config()
-    
-    # Override with command line arguments if provided
-    provider = args.provider
-    if 'PROVIDER' in env_config and args.provider == 'mock':
-        provider = env_config['PROVIDER']
-    
-    api_key = args.api_key
-    if api_key is None and provider == "router":
-        api_key = (
-            env_config.get("BURNER_ROUTER_API_KEY")
-            or env_config.get("ROUTER_API_KEY")
-            or env_config.get("API_AUTH_TOKEN")
-        )
-    if api_key is None and f"{provider.upper()}_API_KEY" in env_config:
-        api_key = env_config[f"{provider.upper()}_API_KEY"]
-    
+
+    # Build the LiteLLM model string.
+    # If --model already contains a "/" use it as-is.
+    # If --provider was also given, prepend it: "openai/gpt-4o"
     model = args.model
-    if model is None and f"{provider.upper()}_MODEL" in env_config:
-        model = env_config[f"{provider.upper()}_MODEL"]
-    
+    if args.provider and "/" not in model:
+        model = f"{args.provider}/{model}"
+
+    # Resolve API key: explicit arg > env var keyed by provider prefix > generic.
+    api_key = args.api_key
+    if api_key is None:
+        provider_prefix = model.split("/")[0].upper()
+        api_key = (
+            env_config.get(f"{provider_prefix}_API_KEY")
+            or env_config.get("BURNER_API_KEY")
+            or os.environ.get(f"{provider_prefix}_API_KEY")
+        )
+
     base_url = args.base_url
-    if base_url is None and 'LOCAL_BASE_URL' in env_config:
-        base_url = env_config['LOCAL_BASE_URL']
     
     # Handle information requests
     if args.list_prompts:
@@ -368,9 +314,7 @@ def main():
     if max_tokens is None and args.burner_mode != "benchmark":
         max_tokens = 1000
     
-    # Create configuration
     config = AgentConfig(
-        provider=provider,
         model=model,
         api_key=api_key,
         base_url=base_url,
@@ -396,9 +340,8 @@ def main():
         agent.run_custom_prompts(args.custom_prompts)
     else:
         print("Starting Simple Token Burner App...")
-        print(f"Provider: {provider}")
+        print(f"Model: {model}")
         print(f"Burner mode: {args.burner_mode}")
-        print(f"Model: {model or 'default'}")
         print(f"Mode: {args.mode}")
         print(f"Categories: {', '.join(args.categories)}")
         
