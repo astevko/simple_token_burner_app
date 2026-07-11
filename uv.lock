@@ -1585,7 +1585,6 @@ dependencies = [
     { name = "litellm" },
     { name = "python-dotenv" },
     { name = "requests" },
-    { name = "smart-llm" },
 ]
 
 [package.optional-dependencies]
@@ -1594,6 +1593,9 @@ anthropic = [
 ]
 openai = [
     { name = "openai" },
+]
+telemetry = [
+    { name = "smart-llm" },
 ]
 
 [package.dev-dependencies]
@@ -1611,9 +1613,9 @@ requires-dist = [
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "requests", specifier = ">=2.25.0" },
-    { name = "smart-llm", editable = "../smart_llm" },
+    { name = "smart-llm", marker = "extra == 'telemetry'", editable = "../smart_llm" },
 ]
-provides-extras = ["openai", "anthropic"]
+provides-extras = ["openai", "anthropic", "telemetry"]
 
 [package.metadata.requires-dev]
 dev = [

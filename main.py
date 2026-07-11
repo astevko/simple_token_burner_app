@@ -31,21 +31,23 @@ def parse_arguments():
     parser.add_argument(
         '--model',
         type=str,
-        default=os.environ.get('BURNER_MODEL', 'openai/mock-model'),
+        default=os.environ.get('BURNER_MODEL', 'mock-model'),
         help=(
-            'LiteLLM model string, e.g. "openai/gpt-4o-mini", '
-            '"anthropic/claude-sonnet-4-20250514", "ollama/llama3" '
-            '(default: BURNER_MODEL from .env, else "openai/mock-model")'
+            'LiteLLM model string or bare model name, e.g. "openai/gpt-4o-mini", '
+            '"anthropic/claude-sonnet-4-20250514", "ollama/llama3", "auto" '
+            '(default: BURNER_MODEL from .env, else "mock-model")'
         ),
     )
 
-    # --provider kept for backward compat; if given without a slash in --model
-    # it is prepended: --provider openai --model gpt-4o → "openai/gpt-4o"
+    # --provider is prepended to --model when --model contains no slash:
+    #   --provider openai --model gpt-4o  →  "openai/gpt-4o"
+    #   BURNER_PROVIDER=router BURNER_MODEL=auto  →  "router/auto"
+    # If --model already includes a slash (full model string), --provider is ignored.
     parser.add_argument(
         '--provider',
         type=str,
-        default=os.environ.get('BURNER_PROVIDER', ''),
-        help='Provider prefix to prepend to --model when --model has no slash (legacy compat)',
+        default=os.environ.get('BURNER_PROVIDER', 'mock'),
+        help='Provider prefix prepended to --model when --model has no slash (default: BURNER_PROVIDER from .env, else "mock")',
     )
     
     parser.add_argument(
@@ -234,9 +236,9 @@ def configure_provider():
 
     current_model = current_config.get("BURNER_MODEL", "")
     model_input = input(
-        f"Enter LiteLLM model string [{current_model or 'openai/mock-model'}]: "
+        f"Enter LiteLLM model string [{current_model or 'mock-model'}]: "
     ).strip()
-    model = model_input or current_model or "openai/mock-model"
+    model = model_input or current_model or "mock-model"
 
     api_key = input("API key (leave blank to skip / use env var): ").strip()
     base_url = input("Base URL (leave blank if not needed): ").strip()

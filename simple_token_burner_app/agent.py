@@ -2,6 +2,7 @@
 Main agent class that orchestrates prompt execution and logging.
 """
 
+import re
 import time
 import random
 from typing import Any, Dict, List, Optional
@@ -21,6 +22,20 @@ from .prompts import (
     get_stop_sequences,
 )
 from .logger import AgentLogger
+
+
+def _check_answer(expected: Optional[str], content: str) -> str:
+    """Return "PASS", "FAIL", or "OK" for a benchmark answer check.
+
+    Uses whole-word matching so short expected values like "7" don't false-positive
+    match inside longer numbers like "17".
+    """
+    if not expected:
+        return "OK"
+    if not content:
+        return "FAIL"
+    pattern = r"\b" + re.escape(expected.lower()) + r"\b"
+    return "PASS" if re.search(pattern, content.lower()) else "FAIL"
 
 
 class ExecutionMode(Enum):
@@ -73,6 +88,7 @@ class SimpleAgent:
             base_url=self.config.base_url,
             burner_mode=self.config.burner_mode,
             benchmark_run_id=self.config.benchmark_run_id,
+            measure_deployments=self.config.measure_deployments,
         )
 
         self.prompts_executed = 0
@@ -245,7 +261,7 @@ class SimpleAgent:
         """
         Iterate over the catalog and execute each prompt in benchmark mode.
 
-        Each entry is executed once with:
+        Each entry is executed once via LiteLLM with:
           - temperature=0.0
           - benchmark token cap from get_token_cap()
           - stop sequences from get_stop_sequences()
@@ -263,6 +279,10 @@ class SimpleAgent:
             f"Benchmark run {self.llm_client.benchmark_run_id}: "
             f"{len(catalog)} prompt(s) via model={self.config.model}"
         )
+        if self.config.max_tokens is not None:
+            print(f"Response budget: {self.config.max_tokens} tokens (CLI override)")
+        else:
+            print("Response budget: per-category (small 256, medium 512, large 1024, xl 2048)")
 
         try:
             for entry in catalog:
@@ -287,15 +307,11 @@ class SimpleAgent:
                 self.prompts_executed += 1
                 self.logger.log_prompt_execution(response, entry["category"])
 
-                # Simple pass/fail check against expected answer.
                 expected = entry.get("expected_answer")
-                if expected and response.content:
-                    passed = expected.lower() in response.content.lower()
-                    status = "PASS" if passed else "FAIL"
-                elif response.error:
+                if response.error:
                     status = "ERROR"
                 else:
-                    status = "OK"
+                    status = _check_answer(expected, response.content)
                 print(f"  [{entry['root_id']}] {self.config.model}: {status}")
                 if response.error:
                     print(f"      {response.error}")

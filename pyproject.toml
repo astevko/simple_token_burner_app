@@ -12,12 +12,14 @@ dependencies = [
     "requests>=2.25.0",
     "python-dotenv>=1.0.0",
     "litellm>=1.91.1",
-    "smart-llm",
 ]
 
 [project.optional-dependencies]
 openai = ["openai>=1.0.0"]
 anthropic = ["anthropic>=0.3.0"]
+# Install smart-llm telemetry (LurkLogger) when available locally or from PyPI.
+# The app runs fine without it; LurkLogger capture is silently skipped if absent.
+telemetry = ["smart-llm"]
 
 [dependency-groups]
 dev = [

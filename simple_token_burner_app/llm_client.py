@@ -5,7 +5,7 @@ Provider + model are supplied as a single LiteLLM model string, e.g.:
   "openai/gpt-4o-mini"
   "anthropic/claude-sonnet-4-20250514"
   "ollama/llama3"
-  "openai/mock-model"   (mock provider for tests)
+  "mock/mock-model"   → offline stub, no credentials required
 
 smart_llm telemetry is captured automatically via LurkLogger, which is
 registered as a LiteLLM callback at client init time.
@@ -14,6 +14,7 @@ registered as a LiteLLM callback at client init time.
 from __future__ import annotations
 
 import hashlib
+import random
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -62,13 +63,13 @@ class LLMClient:
 
     def __init__(
         self,
-        model: str = "openai/mock-model",
+        model: str = "mock/mock-model",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         burner_mode: str = "infer",
         session_id: Optional[str] = None,
         benchmark_run_id: Optional[str] = None,
-        # legacy arg accepted but not used — kept for backward compat with AgentConfig
+        # legacy args accepted but unused — kept for backward compat
         provider: str = "mock",
         measure_deployments: str = "all",
     ):
@@ -133,7 +134,18 @@ class LLMClient:
         effective_intent = intent or (
             "measure" if self.burner_mode == "benchmark" else "infer"
         )
+        provider = _parse_provider(self.model)
 
+        # --- Mock: offline stub, no credentials needed ---
+        if provider == "mock":
+            return self._execute_mock_prompt(
+                prompt=prompt,
+                root_id=root_id,
+                prompt_hash=prompt_hash,
+                start_time=start_time,
+            )
+
+        # --- All other providers go through LiteLLM ---
         messages: List[Dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -182,7 +194,7 @@ class LLMClient:
 
             return LLMResponse(
                 content=content,
-                provider=_parse_provider(self.model),
+                provider=provider,
                 model=model_used,
                 prompt_hash=prompt_hash,
                 response_time=response_time,
@@ -199,7 +211,7 @@ class LLMClient:
             response_time = time.time() - start_time
             return LLMResponse(
                 content="",
-                provider=_parse_provider(self.model),
+                provider=provider,
                 model=self.model,
                 prompt_hash=prompt_hash,
                 response_time=response_time,
@@ -211,3 +223,42 @@ class LLMClient:
                 error=str(exc),
                 root_id=root_id,
             )
+
+    # ------------------------------------------------------------------
+    # Offline mock provider
+    # ------------------------------------------------------------------
+
+    def _execute_mock_prompt(
+        self,
+        prompt: str,
+        root_id: Optional[str] = None,
+        prompt_hash: Optional[str] = None,
+        start_time: Optional[float] = None,
+    ) -> LLMResponse:
+        if start_time is None:
+            start_time = time.time()
+        if prompt_hash is None:
+            prompt_hash = _hash_prompt(prompt)
+
+        time.sleep(0.1)  # simulate latency
+        content = random.choice([
+            f"This is a mock response to: {prompt[:50]}...",
+            "Mock AI: In a real scenario, I would provide a detailed response.",
+            f"[mock] prompt_hash={prompt_hash}",
+            "Simulated response — no API credentials required.",
+        ])
+        word_count = len(prompt.split())
+        return LLMResponse(
+            content=content,
+            provider="mock",
+            model="mock-model",
+            prompt_hash=prompt_hash,
+            response_time=time.time() - start_time,
+            input_tokens=word_count,
+            output_tokens=len(content.split()),
+            total_tokens=word_count + len(content.split()),
+            finish_reason="stop",
+            timestamp=time.time(),
+            raw_response={"prompt": prompt, "response": content},
+            root_id=root_id,
+        )
